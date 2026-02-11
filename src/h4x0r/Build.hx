@@ -257,6 +257,10 @@ class Build {
             // })(typeof exports != "undefined" ? exports : typeof window != "undefined" ? window : typeof self != "undefined" ? self : this, {});
             // Replace the $hx_exports resolution with globalThis
             var oldExports = "typeof exports != \"undefined\" ? exports : typeof window != \"undefined\" ? window : typeof self != \"undefined\" ? self : this";
+            if (content.indexOf(oldExports) == -1) {
+                trace("[h4x0r] WARNING: expected $hx_exports pattern not found in gen/server.js — skipping patch");
+                return;
+            }
             content = StringTools.replace(content, oldExports, "globalThis");
             sys.io.File.saveContent(path, content);
             trace("[h4x0r] patched gen/server.js: $hx_exports → globalThis");
@@ -298,9 +302,9 @@ class Build {
 
         for (ep in serverEndpoints) {
             var qualName = ep.className + "." + ep.methodName;
-            var callArgs = [for (a in ep.args) "args." + a].join(", ");
+            var callArgs = [for (a in ep.args) "args[\"" + a + "\"]"].join(", ");
             buf.add("      case '" + qualName + "':\n");
-            buf.add("        return json(this.app." + ep.methodName + "(" + callArgs + "));\n");
+            buf.add("        return json(await this.app." + ep.methodName + "(" + callArgs + "));\n");
         }
 
         buf.add("      default:\n");
