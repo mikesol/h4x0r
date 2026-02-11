@@ -35,7 +35,8 @@ private typedef SharedFieldInfo = {
  * - Strip DOM-referencing methods (server build)
  * - Emit infrastructure artifacts via onAfterGenerate
  *
- * Tasks 4 and 5 will implement rewriteForClient and rewriteForServer respectively.
+ * Phase 1 implements: AST signal walker, client proxy stub generation,
+ * server-build client-method stripping, @:shared metadata collection.
  */
 class Build {
     public static function configure() {
@@ -66,7 +67,7 @@ class Build {
                     }
 
                     var signals = analyzeMethod(func.expr);
-                    var placement = classify(signals);
+                    var placement = classify(signals, field.pos);
                     trace('[h4x0r] $className.${field.name} -> $placement');
 
                     #if h4x0r_server
@@ -160,13 +161,13 @@ class Build {
         }
     }
 
-    static function classify(signals:MethodSignals):Placement {
+    static function classify(signals:MethodSignals, pos:Position):Placement {
         var isServer = signals.hasProxyFetch || signals.hasServerOnly;
         var isClient = signals.hasBrowserAPI || signals.hasClientOnly;
         if (isServer && isClient) {
             // Context splitting (Phase 4) will handle this properly.
             // For now, server wins — the entire method becomes a proxy stub on client.
-            Context.warning("[h4x0r] method has both server and client signals; context splitting deferred to Phase 4", Context.currentPos());
+            Context.warning("[h4x0r] method has both server and client signals; context splitting deferred to Phase 4", pos);
         }
         if (isServer) return ServerBound;
         if (isClient) return ClientAnchored;

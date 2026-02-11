@@ -3,9 +3,8 @@ package h4x0r;
 /**
  * SCAFFOLD(Phase 1, #1)
  *
- * Runtime stubs for h4x0r primitives. In Phase 1, these are no-op placeholders.
- * The @:build macro injects these as instance methods on server builds so user
- * code can call proxyFetch(...) etc. as bare names.
+ * Runtime stubs for h4x0r primitives. In Phase 1, these are static no-op
+ * placeholders called as Api.proxyFetch(...), Api.secret(...), etc.
  *
  * Later phases replace these with real implementations:
  * - proxyFetch: HTTP forwarding with event log piggybacking
