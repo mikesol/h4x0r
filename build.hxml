@@ -1,0 +1,8 @@
+-cp src
+-cp spike
+--macro h4x0r.Build.configure()
+
+# Client target
+-main Main
+-js gen/client.js
+-dce full
