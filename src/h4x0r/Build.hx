@@ -24,6 +24,12 @@ private typedef SharedFieldInfo = {
     typeName:String,
 };
 
+private typedef ServerEndpoint = {
+    className:String,
+    methodName:String,
+    args:Array<String>,
+};
+
 /**
  * SCAFFOLD(Phase 1, #1)
  *
@@ -39,6 +45,8 @@ private typedef SharedFieldInfo = {
  * server-build client-method stripping, @:shared metadata collection.
  */
 class Build {
+    static var serverEndpoints:Array<ServerEndpoint> = [];
+
     public static function configure() {
         // Called from build.hxml --macro h4x0r.Build.configure()
         // Will register onAfterGenerate and global compilation hooks
@@ -54,6 +62,18 @@ class Build {
         for (sf in sharedFields) {
             trace('[h4x0r] @:shared ${sf.name}: ${sf.typeName}');
         }
+
+        // Add @:expose on server build so the class is accessible at runtime
+        #if h4x0r_server
+        var classMeta = Context.getLocalClass().get().meta;
+        var hasExpose = false;
+        for (m in classMeta.get()) {
+            if (m.name == ":expose") hasExpose = true;
+        }
+        if (!hasExpose) {
+            classMeta.add(":expose", [macro $v{className}], Context.currentPos());
+        }
+        #end
 
         var result:Array<Field> = [];
 
@@ -71,6 +91,21 @@ class Build {
                     trace('[h4x0r] $className.${field.name} -> $placement');
 
                     #if h4x0r_server
+                    // Collect endpoint for DO shell generation
+                    if (placement == ServerBound) {
+                        var argNames = switch (field.kind) {
+                            case FFun(f): [for (a in f.args) a.name];
+                            default: [];
+                        };
+                        serverEndpoints.push({
+                            className: className,
+                            methodName: field.name,
+                            args: argNames,
+                        });
+                        // Prevent DCE from removing server-bound methods
+                        if (field.meta == null) field.meta = [];
+                        field.meta.push({name: ":keep", params: null, pos: field.pos});
+                    }
                     var rewritten = rewriteForServer(field, placement, className);
                     #else
                     var rewritten = rewriteForClient(field, placement, className);
