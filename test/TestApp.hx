@@ -41,4 +41,11 @@ class TestApp {
             trace("audit: " + action);
         });
     }
+
+    /** Client-anchored: forced via clientOnly */
+    public function setupUI():Void {
+        Api.clientOnly(function() {
+            trace("client setup");
+        });
+    }
 }

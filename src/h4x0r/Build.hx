@@ -161,8 +161,15 @@ class Build {
     }
 
     static function classify(signals:MethodSignals):Placement {
-        if (signals.hasProxyFetch || signals.hasServerOnly) return ServerBound;
-        if (signals.hasBrowserAPI || signals.hasClientOnly) return ClientAnchored;
+        var isServer = signals.hasProxyFetch || signals.hasServerOnly;
+        var isClient = signals.hasBrowserAPI || signals.hasClientOnly;
+        if (isServer && isClient) {
+            // Context splitting (Phase 4) will handle this properly.
+            // For now, server wins — the entire method becomes a proxy stub on client.
+            Context.warning("[h4x0r] method has both server and client signals; context splitting deferred to Phase 4", Context.currentPos());
+        }
+        if (isServer) return ServerBound;
+        if (isClient) return ClientAnchored;
         return Portable;
     }
 

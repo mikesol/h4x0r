@@ -15,6 +15,7 @@ class Main {
         trace(app.fetchData("test"));
         trace(app.sendReport({x: 1}));
         app.audit("login");
+        app.setupUI();
         #end
     }
 }
