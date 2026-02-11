@@ -72,7 +72,7 @@ class Build {
                     #if h4x0r_server
                     var rewritten = rewriteForServer(field, placement);
                     #else
-                    var rewritten = rewriteForClient(field, placement);
+                    var rewritten = rewriteForClient(field, placement, className);
                     #end
 
                     if (rewritten != null) {
@@ -196,11 +196,52 @@ class Build {
     }
 
     /**
-     * SCAFFOLD(Phase 1, #1)
-     * Stub: returns field unchanged. Task 4 will implement client-build proxy stub generation.
+     * For ServerBound methods, replaces the method body with a fetch proxy stub
+     * that POSTs to /rpc. ClientAnchored and Portable methods pass through unchanged.
      */
-    static function rewriteForClient(field:Field, placement:Placement):Null<Field> {
-        return field;
+    static function rewriteForClient(field:Field, placement:Placement, className:String):Null<Field> {
+        // Only rewrite ServerBound methods
+        switch (placement) {
+            case ServerBound:
+            // proceed below
+            default:
+                return field;
+        }
+
+        var func = switch (field.kind) {
+            case FFun(f): f;
+            default: return field;
+        };
+
+        // Build the fully qualified RPC method name: "ClassName.methodName"
+        var methodName = className + "." + field.name;
+
+        // Build the args object fields for the JSON payload
+        var argFields:Array<ObjectField> = [];
+        for (arg in func.args) {
+            argFields.push({field: arg.name, expr: macro $i{arg.name}});
+        }
+        var argsExpr:Expr = {expr: EObjectDecl(argFields), pos: field.pos};
+
+        // Build the proxy body using js.Syntax.code for reliable JS output
+        var proxyBody:Expr = macro {
+            return js.Syntax.code("fetch('/rpc', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({method: {0}, args: {1}})}).then(function(r) { return r.json(); })",
+                $v{methodName}, $argsExpr);
+        };
+
+        return {
+            name: field.name,
+            doc: field.doc,
+            access: field.access,
+            kind: FFun({
+                args: func.args,
+                ret: macro :Dynamic,
+                expr: proxyBody,
+                params: func.params,
+            }),
+            pos: field.pos,
+            meta: field.meta,
+        };
     }
 }
 #end

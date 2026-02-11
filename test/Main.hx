@@ -14,6 +14,7 @@ class Main {
         // Proxy stubs (would fetch /rpc in real browser)
         trace(app.fetchData("test"));
         trace(app.sendReport({x: 1}));
+        app.audit("login");
         #end
     }
 }
