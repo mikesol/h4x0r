@@ -70,7 +70,7 @@ class Build {
                     trace('[h4x0r] $className.${field.name} -> $placement');
 
                     #if h4x0r_server
-                    var rewritten = rewriteForServer(field, placement);
+                    var rewritten = rewriteForServer(field, placement, className);
                     #else
                     var rewritten = rewriteForClient(field, placement, className);
                     #end
@@ -188,10 +188,16 @@ class Build {
     }
 
     /**
-     * SCAFFOLD(Phase 1, #1)
-     * Stub: returns field unchanged. Task 5 will implement server-build rewriting.
+     * For the server build, strips ClientAnchored methods entirely.
+     * ServerBound and Portable methods are kept as-is with their original bodies.
      */
-    static function rewriteForServer(field:Field, placement:Placement):Null<Field> {
+    static function rewriteForServer(field:Field, placement:Placement, className:String):Null<Field> {
+        if (placement == ClientAnchored) {
+            // Strip client-anchored methods entirely on server build
+            trace('[h4x0r] stripping client-anchored: $className.${field.name}');
+            return null;
+        }
+        // ServerBound and Portable methods kept as-is
         return field;
     }
 
