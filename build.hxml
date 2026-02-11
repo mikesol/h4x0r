@@ -1,8 +1,19 @@
 -cp src
--cp spike
+-cp test
 --macro h4x0r.Build.configure()
 
 # Client target
 -main Main
 -js gen/client.js
+-dce full
+
+--next
+
+# Server target
+-cp src
+-cp test
+--macro h4x0r.Build.configure()
+-main Main
+-js gen/server.js
+-D h4x0r_server
 -dce full

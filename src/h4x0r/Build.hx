@@ -4,8 +4,28 @@ package h4x0r;
 import haxe.macro.Context;
 import haxe.macro.Expr;
 
+using haxe.macro.ExprTools;
+
+private typedef MethodSignals = {
+    hasProxyFetch:Bool,
+    hasServerOnly:Bool,
+    hasBrowserAPI:Bool,
+    hasClientOnly:Bool,
+};
+
+private enum Placement {
+    ServerBound;
+    ClientAnchored;
+    Portable;
+}
+
+private typedef SharedFieldInfo = {
+    name:String,
+    typeName:String,
+};
+
 /**
- * SCAFFOLD(Phase 1)
+ * SCAFFOLD(Phase 1, #1)
  *
  * The h4x0r build macro. Applied to application classes via @:build(h4x0r.Build.process()).
  *
@@ -15,8 +35,8 @@ import haxe.macro.Expr;
  * - Strip DOM-referencing methods (server build)
  * - Emit infrastructure artifacts via onAfterGenerate
  *
- * Currently a no-op placeholder. See spike/macros/ContextSplitter.hx for the
- * proof-of-concept that this will evolve from.
+ * Phase 1 implements: AST signal walker, client proxy stub generation,
+ * server-build client-method stripping, @:shared metadata collection.
  */
 class Build {
     public static function configure() {
@@ -25,9 +45,217 @@ class Build {
     }
 
     public static function process():Array<Field> {
-        // Called from @:build(h4x0r.Build.process()) on each app class
-        // For now, pass through all fields unchanged
-        return Context.getBuildFields();
+        var fields = Context.getBuildFields();
+        var localClass = Context.getLocalClass().get();
+        var className = localClass.name;
+
+        // Collect @:shared fields
+        var sharedFields = collectSharedFields(fields);
+        for (sf in sharedFields) {
+            trace('[h4x0r] @:shared ${sf.name}: ${sf.typeName}');
+        }
+
+        var result:Array<Field> = [];
+
+        for (field in fields) {
+            switch (field.kind) {
+                case FFun(func):
+                    // Skip constructor
+                    if (field.name == "new") {
+                        result.push(field);
+                        continue;
+                    }
+
+                    var signals = analyzeMethod(func.expr);
+                    var placement = classify(signals, field.pos);
+                    trace('[h4x0r] $className.${field.name} -> $placement');
+
+                    #if h4x0r_server
+                    var rewritten = rewriteForServer(field, placement, className);
+                    #else
+                    var rewritten = rewriteForClient(field, placement, className);
+                    #end
+
+                    if (rewritten != null) {
+                        result.push(rewritten);
+                    }
+
+                default:
+                    // Non-method fields pass through unchanged
+                    result.push(field);
+            }
+        }
+
+        return result;
+    }
+
+    static function analyzeMethod(expr:Null<Expr>):MethodSignals {
+        var signals:MethodSignals = {
+            hasProxyFetch: false,
+            hasServerOnly: false,
+            hasBrowserAPI: false,
+            hasClientOnly: false,
+        };
+        if (expr != null) {
+            walkExpr(expr, signals);
+        }
+        return signals;
+    }
+
+    static function walkExpr(expr:Expr, signals:MethodSignals):Void {
+        switch (expr.expr) {
+            case ECall(target, args):
+                var name = extractCallName(target);
+                if (name == "proxyFetch") signals.hasProxyFetch = true;
+                if (name == "serverOnly") signals.hasServerOnly = true;
+                if (name == "clientOnly") signals.hasClientOnly = true;
+                if (isBrowserAPI(target)) signals.hasBrowserAPI = true;
+                // Walk the call target and all arguments
+                walkExpr(target, signals);
+                for (arg in args) {
+                    walkExpr(arg, signals);
+                }
+
+            case EField(sub, _):
+                if (isBrowserAPI(expr)) signals.hasBrowserAPI = true;
+                walkExpr(sub, signals);
+
+            default:
+                expr.iter(function(e) {
+                    walkExpr(e, signals);
+                });
+        }
+    }
+
+    static function extractCallName(expr:Expr):String {
+        switch (expr.expr) {
+            case EConst(CIdent(name)):
+                return name;
+            case EField(_, name):
+                return name;
+            default:
+                return "";
+        }
+    }
+
+    static function isBrowserAPI(expr:Expr):Bool {
+        var chain = extractFieldChain(expr);
+        if (chain.length >= 2) {
+            if (chain[0] == "js" && (chain[1] == "Browser" || chain[1] == "html")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static function extractFieldChain(expr:Expr):Array<String> {
+        switch (expr.expr) {
+            case EField(sub, name):
+                var parent = extractFieldChain(sub);
+                parent.push(name);
+                return parent;
+            case EConst(CIdent(name)):
+                return [name];
+            default:
+                return [];
+        }
+    }
+
+    static function classify(signals:MethodSignals, pos:Position):Placement {
+        var isServer = signals.hasProxyFetch || signals.hasServerOnly;
+        var isClient = signals.hasBrowserAPI || signals.hasClientOnly;
+        if (isServer && isClient) {
+            // Context splitting (Phase 4) will handle this properly.
+            // For now, server wins — the entire method becomes a proxy stub on client.
+            Context.warning("[h4x0r] method has both server and client signals; context splitting deferred to Phase 4", pos);
+        }
+        if (isServer) return ServerBound;
+        if (isClient) return ClientAnchored;
+        return Portable;
+    }
+
+    static function collectSharedFields(fields:Array<Field>):Array<SharedFieldInfo> {
+        var result:Array<SharedFieldInfo> = [];
+        for (field in fields) {
+            if (field.meta == null) continue;
+            for (m in field.meta) {
+                if (m.name == ":shared" || m.name == "shared") {
+                    var typeName = "Dynamic";
+                    switch (field.kind) {
+                        case FVar(t, _):
+                            if (t != null) {
+                                typeName = haxe.macro.ComplexTypeTools.toString(t);
+                            }
+                        default:
+                    }
+                    result.push({name: field.name, typeName: typeName});
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * For the server build, strips ClientAnchored methods entirely.
+     * ServerBound and Portable methods are kept as-is with their original bodies.
+     */
+    static function rewriteForServer(field:Field, placement:Placement, className:String):Null<Field> {
+        if (placement == ClientAnchored) {
+            // Strip client-anchored methods entirely on server build
+            trace('[h4x0r] stripping client-anchored: $className.${field.name}');
+            return null;
+        }
+        // ServerBound and Portable methods kept as-is
+        return field;
+    }
+
+    /**
+     * For ServerBound methods, replaces the method body with a fetch proxy stub
+     * that POSTs to /rpc. ClientAnchored and Portable methods pass through unchanged.
+     */
+    static function rewriteForClient(field:Field, placement:Placement, className:String):Null<Field> {
+        // Only rewrite ServerBound methods
+        switch (placement) {
+            case ServerBound:
+            // proceed below
+            default:
+                return field;
+        }
+
+        var func = switch (field.kind) {
+            case FFun(f): f;
+            default: return field;
+        };
+
+        // Build the fully qualified RPC method name: "ClassName.methodName"
+        var methodName = className + "." + field.name;
+
+        // Build the args object fields for the JSON payload
+        var argFields:Array<ObjectField> = [];
+        for (arg in func.args) {
+            argFields.push({field: arg.name, expr: macro $i{arg.name}});
+        }
+        var argsExpr:Expr = {expr: EObjectDecl(argFields), pos: field.pos};
+
+        // Build the proxy body using js.Syntax.code for reliable JS output
+        var proxyBody:Expr = macro {
+            return js.Syntax.code("fetch('/rpc', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({method: {0}, args: {1}})}).then(function(r) { return r.json(); })",
+                $v{methodName}, $argsExpr);
+        };
+
+        return {
+            name: field.name,
+            doc: field.doc,
+            access: field.access,
+            kind: FFun({
+                args: func.args,
+                ret: macro :Dynamic,
+                expr: proxyBody,
+                params: func.params,
+            }),
+            pos: field.pos,
+            meta: field.meta,
+        };
     }
 }
 #end
