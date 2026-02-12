@@ -4,18 +4,10 @@ class Main {
     static function main() {
         var app = new TestApp();
         trace("TestApp instantiated");
-
-        // Call portable method (works on both builds)
-        trace(app.format("hello"));
-
         #if !h4x0r_server
-        // Client-only: render
-        app.render();
-        // Proxy stubs (would fetch /rpc in real browser)
-        trace(app.fetchData("test"));
-        trace(app.sendReport({x: 1}));
-        app.audit("login");
-        app.setupUI();
+        trace(app.format("hello"));
+        var result = app.fetchData("test");
+        js.Syntax.code("Promise.resolve({0}).then(function(r) { console.log('fetchData result:', JSON.stringify(r)); })", result);
         #end
     }
 }

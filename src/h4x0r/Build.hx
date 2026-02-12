@@ -289,6 +289,7 @@ class Build {
         buf.add("    this.state = state;\n");
         buf.add("    this.storage = state.storage;\n");
         buf.add("    this.env = env;\n");
+        buf.add("    globalThis.__h4x0r_env = env;\n");
         buf.add("    this.app = new globalThis." + appClass + "();\n");
         buf.add("  }\n\n");
 
