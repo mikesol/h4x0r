@@ -14,7 +14,7 @@ class TestApp {
 
     /** Server-bound: contains proxyFetch + secret */
     public function fetchData(query:String):Dynamic {
-        return Api.proxyFetch("https://api.example.com/data",
+        return Api.proxyFetch("https://httpbin.org/post",
             {authorization: "Bearer " + Api.secret("api-key")},
             {query: query});
     }
