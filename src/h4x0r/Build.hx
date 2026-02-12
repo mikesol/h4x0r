@@ -414,7 +414,10 @@ class Build {
         for (ep in serverEndpoints) {
             var qualName = ep.className + "." + ep.methodName;
             buf.add("### `" + qualName + "`\n");
-            buf.add("- **Args:** " + [for (a in ep.args) "`" + a + "`"].join(", ") + "\n\n");
+            if (ep.args.length > 0) {
+                buf.add("- **Args:** " + [for (a in ep.args) "`" + a + "`"].join(", ") + "\n");
+            }
+            buf.add("\n");
         }
 
         sys.io.File.saveContent("gen/manifest.md", buf.toString());
